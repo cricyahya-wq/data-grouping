@@ -1,0 +1,14 @@
+{
+  "name": "agron-customers",
+  "version": "1.0.0",
+  "description": "Agron Customer Portal – root package (Vercel deployment)",
+  "private": true,
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^9.6.0"
+  },
+  "scripts": {
+    "dev:backend": "node backend/server.js",
+    "dev:frontend": "cd frontend && npm run dev"
+  }
+}
