@@ -5,10 +5,27 @@ const db = require('./db');
 const authMiddleware = require('./middleware/authMiddleware');
 
 const app = express();
-const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// ── Health check / root route ─────────────────────────────────────
+// This prevents "Cannot GET /" on Vercel
+app.get('/', (req, res) => {
+    res.json({
+        status: 'ok',
+        message: 'Agron Portal API is running',
+        version: '1.0.0',
+        endpoints: [
+            'GET  /api/stats',
+            'GET  /api/customers',
+            'POST /api/customers',
+            'GET  /api/customers/grouped/:field',
+            'PUT  /api/customers/:id',
+            'DELETE /api/customers/:id'
+        ]
+    });
+});
 
 // Protect all /api routes with Bearer token auth
 app.use('/api', authMiddleware);
@@ -54,36 +71,32 @@ app.post('/api/customers', async (req, res) => {
     const { customer_details, phone_number, crop_type, area_of_crop, season, location } = req.body;
 
     if (!customer_details || !phone_number || !crop_type || !area_of_crop || !season || !location) {
-        res.status(400).json({ error: 'Please provide all details' });
-        return;
+        return res.status(400).json({ error: 'Please provide all details' });
     }
 
     try {
         const insert = 'INSERT INTO customers (customer_details, phone_number, crop_type, area_of_crop, season, location) VALUES (?,?,?,?,?,?)';
         const params = [customer_details, phone_number, crop_type, area_of_crop, season, location];
-
         const [result] = await db.query(insert, params);
-        res.json({ message: 'success', data: { id: result.insertId, ...req.body } });
+        res.status(201).json({ message: 'success', data: { id: result.insertId, ...req.body } });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Group data by a specific field (e.g., crop_type, season, location)
+// Group data by a specific field (crop_type, season, location)
 app.get('/api/customers/grouped/:field', async (req, res) => {
     const field = req.params.field;
-
-    // Whitelist allowed grouping fields to prevent SQL injection
     const allowedFields = ['crop_type', 'season', 'location'];
+
     if (!allowedFields.includes(field)) {
-        res.status(400).json({ error: 'Invalid grouping field' });
-        return;
+        return res.status(400).json({ error: 'Invalid grouping field' });
     }
 
     const query = `
-        SELECT ${field}, COUNT(id) as count 
+        SELECT \`${field}\`, COUNT(id) AS count 
         FROM customers 
-        GROUP BY ${field} 
+        GROUP BY \`${field}\` 
         ORDER BY count DESC
     `;
 
@@ -100,6 +113,9 @@ app.delete('/api/customers/:id', async (req, res) => {
     const id = req.params.id;
     try {
         const [result] = await db.query('DELETE FROM customers WHERE id = ?', [id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Customer not found' });
+        }
         res.json({ message: 'deleted', changes: result.affectedRows });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -112,8 +128,7 @@ app.put('/api/customers/:id', async (req, res) => {
     const { customer_details, phone_number, crop_type, area_of_crop, season, location } = req.body;
 
     if (!customer_details || !phone_number || !crop_type || !area_of_crop || !season || !location) {
-        res.status(400).json({ error: 'Please provide all details' });
-        return;
+        return res.status(400).json({ error: 'Please provide all details' });
     }
 
     const updateQuery = `
@@ -125,12 +140,15 @@ app.put('/api/customers/:id', async (req, res) => {
 
     try {
         const [result] = await db.query(updateQuery, params);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Customer not found' });
+        }
         res.json({ message: 'updated', changes: result.affectedRows });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}`);
-});
+// IMPORTANT: Do NOT call app.listen() for Vercel serverless.
+// Export the app so Vercel's @vercel/node runtime can invoke it.
+module.exports = app;
