@@ -5,7 +5,8 @@
   "private": true,
   "license": "ISC",
   "dependencies": {
-    "better-sqlite3": "^9.6.0"
+    "@neondatabase/serverless": "^0.9.0",
+    "dotenv": "^16.4.5"
   },
   "scripts": {
     "dev:backend": "node backend/server.js",

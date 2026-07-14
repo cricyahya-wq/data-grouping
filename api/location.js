@@ -2,29 +2,40 @@
  * api/location.js
  *
  * GET /api/customers/grouped/location
- * → customers grouped and counted by location, ordered by count DESC
+ * → customers grouped and counted by location, ordered by count DESC (Neon PostgreSQL)
  */
-const { getDb } = require('./_db');
-const { isAuthorized, unauthorized } = require('./_auth');
+const { sql } = require('./_db');
+const checkAuth = require('./_auth');
 
-module.exports = function handler(req, res) {
+module.exports = async function handler(req, res) {
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
-  if (!isAuthorized(req)) return unauthorized(res);
+  // Authorize request
+  if (!checkAuth(req, res)) {
+    return; // _auth.js handles the response
+  }
 
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' });
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method Not Allowed' });
+  }
 
   try {
-    const db = getDb();
-    const rows = db
-      .prepare('SELECT location, COUNT(id) AS count FROM customers GROUP BY location ORDER BY count DESC')
-      .all();
+    const rows = await sql`
+      SELECT location, COUNT(id)::int AS count 
+      FROM customers 
+      GROUP BY location 
+      ORDER BY count DESC
+    `;
     return res.status(200).json({ data: rows });
   } catch (err) {
+    console.error('GET location stats error:', err);
     return res.status(500).json({ error: err.message });
   }
 };

@@ -1,31 +1,49 @@
 /**
  * api/customers/[id].js
  *
- * PUT    /api/customers/:id  → edit a customer
- * DELETE /api/customers/:id  → delete a customer
+ * PUT    /api/customers/:id  → edit a customer in PostgreSQL
+ * DELETE /api/customers/:id  → delete a customer in PostgreSQL
  */
-const { getDb } = require('../_db');
-const { isAuthorized, unauthorized } = require('../_auth');
+const { sql } = require('../_db');
+const checkAuth = require('../_auth');
 
-module.exports = function handler(req, res) {
-  // CORS
+module.exports = async function handler(req, res) {
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
-  if (!isAuthorized(req)) return unauthorized(res);
+  // Authorize request
+  if (!checkAuth(req, res)) {
+    return; // _auth.js handles the response
+  }
 
   const { id } = req.query;
-  const db = getDb();
+
+  if (!id) {
+    return res.status(400).json({ error: 'Missing customer ID' });
+  }
 
   // ── DELETE /api/customers/:id ───────────────────────────────────
   if (req.method === 'DELETE') {
     try {
-      const info = db.prepare('DELETE FROM customers WHERE id = ?').run(id);
-      return res.status(200).json({ message: 'deleted', changes: info.changes });
+      const result = await sql`
+        DELETE FROM customers 
+        WHERE id = ${id}
+        RETURNING id
+      `;
+
+      if (result.length === 0) {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      return res.status(200).json({ message: 'deleted', changes: result.length });
     } catch (err) {
+      console.error('DELETE customer error:', err);
       return res.status(500).json({ error: err.message });
     }
   }
@@ -39,14 +57,26 @@ module.exports = function handler(req, res) {
     }
 
     try {
-      const stmt = db.prepare(`
+      const result = await sql`
         UPDATE customers
-        SET customer_details = ?, phone_number = ?, crop_type = ?, area_of_crop = ?, season = ?, location = ?
-        WHERE id = ?
-      `);
-      const info = stmt.run(customer_details, phone_number, crop_type, area_of_crop, season, location, id);
-      return res.status(200).json({ message: 'updated', changes: info.changes });
+        SET 
+          name = ${customer_details}, 
+          phone = ${phone_number}, 
+          location = ${location}, 
+          crop_type = ${crop_type}, 
+          season = ${season}, 
+          area_acres = ${area_of_crop}
+        WHERE id = ${id}
+        RETURNING id
+      `;
+
+      if (result.length === 0) {
+        return res.status(404).json({ error: 'Customer not found' });
+      }
+
+      return res.status(200).json({ message: 'updated', changes: result.length });
     } catch (err) {
+      console.error('PUT customer error:', err);
       return res.status(500).json({ error: err.message });
     }
   }

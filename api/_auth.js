@@ -1,22 +1,31 @@
 /**
- * _auth.js  –  shared Bearer-token auth helper
+ * _auth.js  –  shared auth checking helper for Vercel Serverless Functions
  *
- * Returns true if the request carries a valid Authorization header.
- * The expected token is read from the PORTAL_ACCESS_TOKEN environment variable
- * which you set in Vercel → Project Settings → Environment Variables.
+ * Validates the Authorization header against the API_SECRET_TOKEN or PORTAL_ACCESS_TOKEN.
+ * Returns true if authorized, or sends a 401 response and returns false if unauthorized.
  */
-function isAuthorized(req) {
-  const expectedToken = process.env.PORTAL_ACCESS_TOKEN;
+function checkAuth(req, res) {
+  const expectedToken = process.env.API_SECRET_TOKEN || process.env.PORTAL_ACCESS_TOKEN;
   const authHeader = req.headers['authorization'] || '';
 
-  if (!authHeader.startsWith('Bearer ')) return false;
+  if (!expectedToken) {
+    console.error('Error: API_SECRET_TOKEN or PORTAL_ACCESS_TOKEN is not configured.');
+    res.status(500).json({ error: 'Internal Server Error: Auth configuration missing' });
+    return false;
+  }
+
+  if (!authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Unauthorized: Missing or invalid token format' });
+    return false;
+  }
 
   const token = authHeader.slice(7); // strip "Bearer "
-  return token === expectedToken;
+  if (token !== expectedToken) {
+    res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    return false;
+  }
+
+  return true;
 }
 
-function unauthorized(res) {
-  res.status(401).json({ error: 'Unauthorized' });
-}
-
-module.exports = { isAuthorized, unauthorized };
+module.exports = checkAuth;
