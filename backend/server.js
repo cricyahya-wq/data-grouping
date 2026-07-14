@@ -1,11 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const db = require('./database');
+const db = require('./db');
 const authMiddleware = require('./middleware/authMiddleware');
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -14,49 +14,43 @@ app.use(express.json());
 app.use('/api', authMiddleware);
 
 // Get dashboard stats
-app.get('/api/stats', (req, res) => {
-    const stats = {};
+app.get('/api/stats', async (req, res) => {
+    try {
+        const stats = {};
 
-    db.get('SELECT COUNT(*) AS totalCustomers FROM customers', [], (err, row) => {
-        if (err) { res.status(500).json({ error: err.message }); return; }
-        stats.totalCustomers = row.totalCustomers;
+        const [totalRows] = await db.query('SELECT COUNT(*) AS totalCustomers FROM customers');
+        stats.totalCustomers = totalRows[0].totalCustomers;
 
-        db.get('SELECT COUNT(DISTINCT crop_type) AS uniqueCrops FROM customers', [], (err, row) => {
-            if (err) { res.status(500).json({ error: err.message }); return; }
-            stats.uniqueCrops = row.uniqueCrops;
+        const [cropRows] = await db.query('SELECT COUNT(DISTINCT crop_type) AS uniqueCrops FROM customers');
+        stats.uniqueCrops = cropRows[0].uniqueCrops;
 
-            db.get('SELECT COUNT(DISTINCT location) AS uniqueLocations FROM customers', [], (err, row) => {
-                if (err) { res.status(500).json({ error: err.message }); return; }
-                stats.uniqueLocations = row.uniqueLocations;
+        const [locRows] = await db.query('SELECT COUNT(DISTINCT location) AS uniqueLocations FROM customers');
+        stats.uniqueLocations = locRows[0].uniqueLocations;
 
-                db.get('SELECT COUNT(DISTINCT season) AS uniqueSeasons FROM customers', [], (err, row) => {
-                    if (err) { res.status(500).json({ error: err.message }); return; }
-                    stats.uniqueSeasons = row.uniqueSeasons;
+        const [seasonRows] = await db.query('SELECT COUNT(DISTINCT season) AS uniqueSeasons FROM customers');
+        stats.uniqueSeasons = seasonRows[0].uniqueSeasons;
 
-                    db.all('SELECT * FROM customers ORDER BY id DESC LIMIT 5', [], (err, rows) => {
-                        if (err) { res.status(500).json({ error: err.message }); return; }
-                        stats.recentlyAdded = rows;
-                        res.json({ data: stats });
-                    });
-                });
-            });
-        });
-    });
+        const [recentRows] = await db.query('SELECT * FROM customers ORDER BY id DESC LIMIT 5');
+        stats.recentlyAdded = recentRows;
+
+        res.json({ data: stats });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Get all customers
-app.get('/api/customers', (req, res) => {
-    db.all('SELECT * FROM customers', [], (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
+app.get('/api/customers', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM customers');
         res.json({ data: rows });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Add a new customer
-app.post('/api/customers', (req, res) => {
+app.post('/api/customers', async (req, res) => {
     const { customer_details, phone_number, crop_type, area_of_crop, season, location } = req.body;
 
     if (!customer_details || !phone_number || !crop_type || !area_of_crop || !season || !location) {
@@ -64,20 +58,19 @@ app.post('/api/customers', (req, res) => {
         return;
     }
 
-    const insert = 'INSERT INTO customers (customer_details, phone_number, crop_type, area_of_crop, season, location) VALUES (?,?,?,?,?,?)';
-    const params = [customer_details, phone_number, crop_type, area_of_crop, season, location];
+    try {
+        const insert = 'INSERT INTO customers (customer_details, phone_number, crop_type, area_of_crop, season, location) VALUES (?,?,?,?,?,?)';
+        const params = [customer_details, phone_number, crop_type, area_of_crop, season, location];
 
-    db.run(insert, params, function (err) {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json({ message: 'success', data: { id: this.lastID, ...req.body } });
-    });
+        const [result] = await db.query(insert, params);
+        res.json({ message: 'success', data: { id: result.insertId, ...req.body } });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Group data by a specific field (e.g., crop_type, season, location)
-app.get('/api/customers/grouped/:field', (req, res) => {
+app.get('/api/customers/grouped/:field', async (req, res) => {
     const field = req.params.field;
 
     // Whitelist allowed grouping fields to prevent SQL injection
@@ -94,29 +87,27 @@ app.get('/api/customers/grouped/:field', (req, res) => {
         ORDER BY count DESC
     `;
 
-    db.all(query, [], (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
+    try {
+        const [rows] = await db.query(query);
         res.json({ data: rows });
-    });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Delete a customer
-app.delete('/api/customers/:id', (req, res) => {
+app.delete('/api/customers/:id', async (req, res) => {
     const id = req.params.id;
-    db.run('DELETE FROM customers WHERE id = ?', id, function (err) {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json({ message: 'deleted', changes: this.changes });
-    });
+    try {
+        const [result] = await db.query('DELETE FROM customers WHERE id = ?', [id]);
+        res.json({ message: 'deleted', changes: result.affectedRows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Edit a customer
-app.put('/api/customers/:id', (req, res) => {
+app.put('/api/customers/:id', async (req, res) => {
     const id = req.params.id;
     const { customer_details, phone_number, crop_type, area_of_crop, season, location } = req.body;
 
@@ -132,13 +123,12 @@ app.put('/api/customers/:id', (req, res) => {
     `;
     const params = [customer_details, phone_number, crop_type, area_of_crop, season, location, id];
 
-    db.run(updateQuery, params, function (err) {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
-        res.json({ message: 'updated', changes: this.changes });
-    });
+    try {
+        const [result] = await db.query(updateQuery, params);
+        res.json({ message: 'updated', changes: result.affectedRows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.listen(port, () => {
